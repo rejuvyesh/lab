@@ -63,7 +63,11 @@ static void LabObject_dealloc(LabObject* self) {
   env_close(self);
   free(self->env_c_api);
   free(self->observation_indices);
+#if PY_MAJOR_VERSION >= 3
+  Py_TYPE(self)->tp_free((PyObject*)self);
+#else
   self->ob_type->tp_free((PyObject*)self);
+#endif
 }
 
 static PyObject* LabObject_new(PyTypeObject* type, PyObject* args,
@@ -79,7 +83,11 @@ static PyObject* LabObject_new(PyTypeObject* type, PyObject* args,
       return NULL;
     }
 
+#if PY_MAJOR_VERSION >= 3
+    DeepMindLabLaunchParams params;
+#else
     DeepMindLabLaunchParams params = {};
+#endif
     params.runfiles_path = runfiles_path;
 
     if (dmlab_connect(&params, self->env_c_api, &self->context) != 0) {
@@ -148,8 +156,13 @@ static int Lab_init(LabObject* self, PyObject* args, PyObject* kwds) {
     char *key, *value;
 
     while (PyDict_Next(config, &pos, &pykey, &pyvalue)) {
+#if PY_MAJOR_VERSION >= 3
+      key = PyUnicode_AsUTF8(pykey);
+      value = PyUnicode_AsUTF8(pyvalue);
+#else
       key = PyString_AsString(pykey);
       value = PyString_AsString(pyvalue);
+#endif
       if (key == NULL || value == NULL) {
         return -1;
       }
@@ -167,7 +180,11 @@ static int Lab_init(LabObject* self, PyObject* args, PyObject* kwds) {
 
   char* observation_name;
   for (int i = 0; i < self->observation_count; ++i) {
+#if PY_MAJOR_VERSION >= 3
+    observation_name = PyUnicode_AsUTF8(PyList_GetItem(observations, i));
+#else
     observation_name = PyString_AsString(PyList_GetItem(observations, i));
+#endif
     if (observation_name == NULL) {
       return -1;
     }
@@ -207,12 +224,20 @@ static PyObject* Lab_reset(LabObject* self, PyObject* args, PyObject* kwds) {
   if (seed_arg == NULL || seed_arg == Py_None) {
     seed = rand();
   } else {
+#if PY_MAJOR_VERSION >= 3
+    if (!PyLong_Check(seed_arg)) {
+#else
     if (!PyInt_Check(seed_arg)) {
+#endif
       PyErr_Format(PyExc_ValueError, "'seed' must be int or None, was '%s'.",
                    Py_TYPE(seed_arg)->tp_name);
       return NULL;
     }
+#if PY_MAJOR_VERSION >= 3
+    seed = PyLong_AsLong(seed_arg);
+#else
     seed = PyInt_AsLong(seed_arg);
+#endif
   }
 
   if (self->env_c_api->start(self->context, self->episode, seed) != 0) {
@@ -226,7 +251,11 @@ static PyObject* Lab_reset(LabObject* self, PyObject* args, PyObject* kwds) {
 }
 
 static PyObject* Lab_num_steps(LabObject* self) {
+#if PY_MAJOR_VERSION >= 3
+  return PyLong_FromLong(self->num_steps);
+#else
   return PyInt_FromLong(self->num_steps);
+#endif
 }
 
 // Helper function to determine if we're ready to step or give an observation.
@@ -317,7 +346,11 @@ static PyObject* Lab_observation_spec(LabObject* self) {
                ->typeobj;
     shape = PyTuple_New(spec.dims);
     for (int j = 0; j < spec.dims; ++j) {
+#if PY_MAJOR_VERSION >= 3
+      if (PyTuple_SetItem(shape, j, PyLong_FromLong(spec.shape[j])) != 0) {
+#else
       if (PyTuple_SetItem(shape, j, PyInt_FromLong(spec.shape[j])) != 0) {
+#endif
         PyErr_SetString(PyExc_RuntimeError, "Unable to populate tuple");
         return NULL;
       }
@@ -335,7 +368,11 @@ static PyObject* Lab_observation_spec(LabObject* self) {
 }
 
 static PyObject* Lab_fps(LabObject* self) {
+#if PY_MAJOR_VERSION >= 3
+  return PyLong_FromLong(self->env_c_api->fps(self->context));
+#else
   return PyInt_FromLong(self->env_c_api->fps(self->context));
+#endif
 }
 
 static PyObject* Lab_action_spec(LabObject* self) {
@@ -450,7 +487,11 @@ static PyMethodDef LabObject_methods[] = {
 };
 
 static PyTypeObject deepmind_lab_LabType = {
+#if PY_MAJOR_VERSION >= 3
+    PyVarObject_HEAD_INIT(NULL,0)  /* ob_size */
+#else
     PyObject_HEAD_INIT(NULL) 0,    /* ob_size */
+#endif
     "deepmind_lab.Lab",            /* tp_name */
     sizeof(LabObject),             /* tp_basicsize */
     0,                             /* tp_itemsize */
@@ -521,12 +562,31 @@ static PyMethodDef module_methods[] = {
     {NULL, NULL, 0, NULL} /* sentinel */
 };
 
+#if PY_MAJOR_VERSION >= 3
+PyMODINIT_FUNC PyInit_deepmind_lab(void) {
+#else
 PyMODINIT_FUNC initdeepmind_lab(void) {
+#endif
   PyObject* m;
 
   if (PyType_Ready(&deepmind_lab_LabType) < 0) return;
 
+#if PY_MAJOR_VERSION >= 3
+  static struct PyModuleDef moduledef = {
+    PyModuleDef_HEAD_INIT,
+    "deepmind_lab",      /* m_name */
+    "DeepMind Lab API module for python 3",  /* m_doc */
+    -1,                  /* m_size */
+    module_methods,      /* m_methods */
+    NULL,                /* m_reload */
+    NULL,                /* m_traverse */
+    NULL,                /* m_clear */
+    NULL,                /* m_free */
+  };
+  m = PyModule_Create(&moduledef);
+#else
   m = Py_InitModule3("deepmind_lab", module_methods, "DeepMind Lab API module");
+#endif
 
   Py_INCREF(&deepmind_lab_LabType);
   PyModule_AddObject(m, "Lab", (PyObject*)&deepmind_lab_LabType);
@@ -547,4 +607,7 @@ PyMODINIT_FUNC initdeepmind_lab(void) {
   srand(time(NULL));
 
   import_array();
+#if PY_MAJOR_VERSION >= 3
+  return m;
+#endif
 }
